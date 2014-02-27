@@ -115,6 +115,7 @@ int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	 * space do its magic.
 	 */
 
+	mark_page_dirty(vcpu->kvm, fault_ipa >> PAGE_SHIFT);
 	if (kvm_vcpu_dabt_isvalid(vcpu)) {
 		ret = decode_hsr(vcpu, fault_ipa, &mmio);
 		if (ret)

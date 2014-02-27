@@ -460,12 +460,61 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	/* Create 2nd stage page table mapping - Level 3 */
 	old_pte = *pte;
 	kvm_set_pte(pte, *new_pte);
+	mark_page_dirty(kvm, addr >> PAGE_SHIFT);
 	if (pte_present(old_pte))
 		kvm_tlb_flush_vmid_ipa(kvm, addr);
 	else
 		get_page(virt_to_page(pte));
 
 	return 0;
+}
+
+/**
+ * kvm_set_memslot_readonly - set stage2 table of a given memslot page table read-only
+ * @kvm:	The kvm pointer
+ * @memslot:	The memslot pointer specifies the memory range
+ * This function will be invoked when dirty page tracking starts
+ */
+void kvm_set_memslot_readonly(struct kvm *kvm, struct kvm_memory_slot *memslot)
+{
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	u64 size = memslot->npages << PAGE_SHIFT;
+	phys_addr_t start = memslot->base_gfn << PAGE_SHIFT;
+	phys_addr_t end = start + size;
+	phys_addr_t addr = start;
+
+	spin_lock(&kvm->mmu_lock);
+
+	while(addr < end) {
+		pgd = kvm->arch.pgd + pgd_index(addr);
+		pud = pud_offset(pgd, addr);
+		if (pud_none(*pud)) {
+			addr = pud_addr_end(addr, end);
+			continue;
+		}
+
+		pmd = pmd_offset(pud, addr);
+		if (pmd_none(*pmd)) {
+			addr = pmd_addr_end(addr, end);
+			continue;
+		}
+
+		pte = pte_offset_kernel(pmd, addr);
+		if (kvm_is_visible_gfn(kvm, (addr >> PAGE_SHIFT)) && pte_val(*pte)) {
+			pte_val(*pte) &= (~L_PTE_S2_RDWR);
+			pte_val(*pte) |= L_PTE_S2_RDONLY;
+
+			kvm_set_pte(pte, *pte);
+			kvm_tlb_flush_vmid_ipa(kvm, addr);
+		}
+		addr += PAGE_SIZE;
+	}
+
+	spin_unlock(&kvm->mmu_lock);
 }
 
 /**
@@ -557,6 +606,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	}
 	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte, false);
 
+	if (write_fault)
+		mark_page_dirty(vcpu->kvm, gfn);
 out_unlock:
 	spin_unlock(&vcpu->kvm->mmu_lock);
 	kvm_release_pfn_clean(pfn);

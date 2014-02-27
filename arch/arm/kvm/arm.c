@@ -239,6 +239,10 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 				   const struct kvm_memory_slot *old,
 				   enum kvm_mr_change change)
 {
+	struct kvm_memory_slot *memslot = id_to_memslot(kvm->memslots, mem->slot);
+
+	if (memslot && (mem->flags & KVM_MEM_LOG_DIRTY_PAGES))
+		kvm_set_memslot_readonly(kvm, memslot);
 }
 
 void kvm_arch_flush_shadow_all(struct kvm *kvm)

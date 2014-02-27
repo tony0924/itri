@@ -103,6 +103,8 @@ static inline void kvm_set_s2pte_writable(pte_t *pte)
 	pte_val(*pte) |= L_PTE_S2_RDWR;
 }
 
+void kvm_set_memslot_readonly(struct kvm *kvm, struct kvm_memory_slot *memslot);
+
 struct kvm;
 
 static inline void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
