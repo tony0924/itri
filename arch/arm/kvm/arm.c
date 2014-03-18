@@ -857,6 +857,19 @@ long kvm_arch_vm_ioctl(struct file *filp,
 			return -EFAULT;
 		return kvm_vm_ioctl_set_device_addr(kvm, &dev_addr);
 	}
+	case KVM_ARM_GET_S2_PGD_SIZE: {
+		return PTRS_PER_S2_PGD * sizeof(pgd_t);
+	}
+	case KVM_ARM_GET_S2_PGD: {
+		if (!kvm->arch.pgd)
+			return -EFAULT;
+		return copy_to_user(argp, kvm->arch.pgd, PTRS_PER_S2_PGD * sizeof(pgd_t));
+	}
+	case KVM_ARM_SET_S2_PGD: {
+		if (!kvm->arch.pgd)
+			return -EFAULT;
+		return copy_from_user(kvm->arch.pgd, argp, PTRS_PER_S2_PGD * sizeof(pgd_t));
+	}
 	default:
 		return -EINVAL;
 	}
