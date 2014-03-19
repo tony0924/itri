@@ -1022,6 +1022,11 @@ struct kvm_s390_ucas_mapping {
 #define KVM_ARM_GET_S2_PGD_SIZE	  _IOR(KVMIO,  0xb1, int)
 #define KVM_ARM_GET_S2_PGD	  _IOR(KVMIO,  0xb2, void *)
 #define KVM_ARM_SET_S2_PGD	  _IOW(KVMIO,  0xb3, void *)
+#define KVM_ARM_SET_CLONING_ROLE	  _IOR(KVMIO,  0xb4, unsigned int)
+
+#define KVM_ARM_CLONING_ROLE_NONE	0
+#define KVM_ARM_CLONING_ROLE_SOURCE	1
+#define KVM_ARM_CLONING_ROLE_TARGET	2
 
 #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
 #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)

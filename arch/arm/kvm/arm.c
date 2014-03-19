@@ -142,6 +142,8 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	/* Mark the initial VMID generation invalid */
 	kvm->arch.vmid_gen = 0;
 
+	kvm->arch.cloning_role = KVM_ARM_CLONING_ROLE_NONE;
+
 	return ret;
 out_free_stage2_pgd:
 	kvm_free_stage2_pgd(kvm);
@@ -869,6 +871,28 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		if (!kvm->arch.pgd)
 			return -EFAULT;
 		return copy_from_user(kvm->arch.pgd, argp, PTRS_PER_S2_PGD * sizeof(pgd_t));
+	}
+	case KVM_ARM_SET_CLONING_ROLE: {
+		/* we don't allow the role changing from source to target or vice versa */
+		if (kvm->arch.cloning_role && arg != KVM_ARM_CLONING_ROLE_NONE) {
+			pr_err("VM's cloning role has been set\n");
+			return -EINVAL;
+		}
+
+		/* TODO */
+		switch (arg) {
+		case KVM_ARM_CLONING_ROLE_NONE:
+			break;
+		case KVM_ARM_CLONING_ROLE_SOURCE:
+			break;
+		case KVM_ARM_CLONING_ROLE_TARGET:
+			break;
+		default:
+			return -EINVAL;
+		}
+
+		kvm->arch.cloning_role = arg;
+		return 0;
 	}
 	default:
 		return -EINVAL;

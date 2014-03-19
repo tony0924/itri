@@ -72,6 +72,9 @@ struct kvm_arch {
 
 	/* Interrupt controller */
 	struct vgic_dist	vgic;
+
+	/* Indicating which role the VM plays for cloning */
+	unsigned int cloning_role;
 };
 
 #define KVM_NR_MEM_OBJS     40
