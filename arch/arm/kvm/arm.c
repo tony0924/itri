@@ -839,6 +839,44 @@ static int kvm_vm_ioctl_set_device_addr(struct kvm *kvm,
 	}
 }
 
+/**
+ *
+ */
+int vm_cloning_start_source(struct kvm *kvm)
+{
+	mark_s2_non_present(kvm);
+
+	return 0;
+}
+
+int vm_cloning_start_target(struct kvm *kvm)
+{
+	return 0;
+}
+
+int kvm_arm_setup_cloning_role(struct kvm *kvm, int role)
+{
+	int ret = 0;
+
+	switch (role) {
+	case KVM_ARM_CLONING_ROLE_NONE:
+		/* TODO: how to recover the page table setting? */
+		break;
+	case KVM_ARM_CLONING_ROLE_SOURCE:
+		ret = vm_cloning_start_source(kvm);
+		break;
+	case KVM_ARM_CLONING_ROLE_TARGET:
+		ret = vm_cloning_start_target(kvm);
+		break;
+	default:
+		return -EINVAL;
+	}
+	if (ret == 0)
+		kvm->arch.cloning_role = role;
+
+	return ret;
+}
+
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
@@ -878,21 +916,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 			pr_err("VM's cloning role has been set\n");
 			return -EINVAL;
 		}
-
-		/* TODO */
-		switch (arg) {
-		case KVM_ARM_CLONING_ROLE_NONE:
-			break;
-		case KVM_ARM_CLONING_ROLE_SOURCE:
-			break;
-		case KVM_ARM_CLONING_ROLE_TARGET:
-			break;
-		default:
-			return -EINVAL;
-		}
-
-		kvm->arch.cloning_role = arg;
-		return 0;
+		return kvm_arm_setup_cloning_role(kvm, arg);
 	}
 	default:
 		return -EINVAL;

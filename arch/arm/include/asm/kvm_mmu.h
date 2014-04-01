@@ -132,6 +132,8 @@ static inline void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
 
 #define kvm_flush_dcache_to_poc(a,l)	__cpuc_flush_dcache_area((a), (l))
 
+void mark_s2_non_present(struct kvm *kvm);
+
 #endif	/* !__ASSEMBLY__ */
 
 #endif /* __ARM_KVM_MMU_H__ */

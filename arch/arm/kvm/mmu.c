@@ -438,6 +438,11 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		pmd = mmu_memory_cache_alloc(cache);
 		pud_populate(NULL, pud, pmd);
 		get_page(virt_to_page(pud));
+	} else if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE) {
+		/* pud is present but fault, let's check if type fault */
+		if (!pmd_table(pud_val(*pud))) {
+			set_pud(pud, __pud(pud_val(*pud) | PMD_TYPE_TABLE));
+		}
 	}
 
 	pmd = pmd_offset(pud, addr);
@@ -568,7 +573,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	struct kvm_mmu_memory_cache *memcache = &vcpu->arch.mmu_page_cache;
 
 	write_fault = kvm_is_write_fault(kvm_vcpu_get_hsr(vcpu));
-	if (fault_status == FSC_PERM && !write_fault) {
+	if (fault_status == FSC_PERM && !write_fault &&
+			!vcpu->kvm->arch.cloning_role) {
 		kvm_err("Unexpected L2 read permission error\n");
 		return -EFAULT;
 	}
@@ -882,4 +888,51 @@ int kvm_mmu_init(void)
 out:
 	free_hyp_pgds();
 	return err;
+}
+
+/**
+ * kvm_set_memslot_non_present - set stage2 table of a given memslot page table non-present
+ * This function will be invoked when qemu starts to clone a VM.
+ * This is for memory copy-on-access.
+ *
+ * Only modify the top level page table (pgd/pud)
+ */
+void kvm_set_memslot_non_present(struct kvm *kvm, struct kvm_memory_slot *memslot)
+{
+	pgd_t *pgd;
+	pud_t *pud;
+
+	u64 size = memslot->npages << PAGE_SHIFT;
+	phys_addr_t start = memslot->base_gfn << PAGE_SHIFT;
+	phys_addr_t end = start + size;
+	phys_addr_t addr = start;
+
+	/* XXX: At this moment, qemu already pauses VM, do we still need mmu_lock? */
+	spin_lock(&kvm->mmu_lock);
+
+	/* we don't traverse all pgd, because some of entries are used by
+	 * iomem not RAM */
+	while(addr < end) {
+		pgd = kvm->arch.pgd + pgd_index(addr);
+		pud = pud_offset(pgd, addr);
+
+		if (pud_present(*pud))
+			set_pud(pud, __pud(pud_val(*pud) & ~PMD_TYPE_TABLE));
+
+		addr = pmd_addr_end(addr, end);
+	}
+
+	spin_unlock(&kvm->mmu_lock);
+}
+
+void mark_s2_non_present(struct kvm *kvm)
+{
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots;
+
+	slots = kvm_memslots(kvm);
+
+	kvm_for_each_memslot(memslot, slots) {
+		kvm_set_memslot_non_present(kvm, memslot);
+	}
 }
