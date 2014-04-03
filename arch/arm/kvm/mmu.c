@@ -919,7 +919,7 @@ void kvm_set_memslot_non_present(struct kvm *kvm, struct kvm_memory_slot *memslo
 		if (pud_present(*pud))
 			set_pud(pud, __pud(pud_val(*pud) & ~PMD_TYPE_TABLE));
 
-		addr = pmd_addr_end(addr, end);
+		addr = pud_addr_end(addr, end);
 	}
 
 	spin_unlock(&kvm->mmu_lock);
