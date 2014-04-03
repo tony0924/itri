@@ -890,6 +890,18 @@ out:
 	return err;
 }
 
+/* set the REFCNT bit to indicate this entry is shared by another vm */
+static void set_pmd_refcnt(pud_t *pud)
+{
+	int i;
+	pmd_t *pmd = pmd_offset(pud, 0);
+
+	for(i=0; i<PTRS_PER_PMD; i++) {
+		if (pmd_present(pmd[i]))
+			pmd[i] |= L_PMD_S2_REFCNT_USED;
+	}
+}
+
 /**
  * kvm_set_memslot_non_present - set stage2 table of a given memslot page table non-present
  * This function will be invoked when qemu starts to clone a VM.
@@ -916,8 +928,10 @@ void kvm_set_memslot_non_present(struct kvm *kvm, struct kvm_memory_slot *memslo
 		pgd = kvm->arch.pgd + pgd_index(addr);
 		pud = pud_offset(pgd, addr);
 
-		if (pud_present(*pud))
+		if (pud_present(*pud)) {
 			set_pud(pud, __pud(pud_val(*pud) & ~PMD_TYPE_TABLE));
+			set_pmd_refcnt(pud);
+		}
 
 		addr = pud_addr_end(addr, end);
 	}

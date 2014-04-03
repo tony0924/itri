@@ -127,6 +127,27 @@
 #define L_PTE_S2_RDWR		 (_AT(pteval_t, 3) << 6)   /* HAP[2:1] */
 
 /*
+ * 2nd stage definitions for VM cloning
+ * pgd, pud, pmd reserved bits 58:52
+ * pte           reserved bits 58:55
+ */
+#define L_PGD_S2_REFCNT_MASK	(_AT(pgdval_t, 1) << 57)
+#define L_PUD_S2_REFCNT_MASK	L_PGD_S2_REFCNT_MASK
+#define L_PMD_S2_REFCNT_MASK	L_PGD_S2_REFCNT_MASK
+#define L_PTE_S2_REFCNT_MASK	L_PGD_S2_REFCNT_MASK
+
+#define L_PGD_S2_REFCNT_USED	(_AT(pgdval_t, 1) << 57)
+#define L_PUD_S2_REFCNT_USED	L_PGD_S2_REFCNT_USED
+#define L_PMD_S2_REFCNT_USED	L_PGD_S2_REFCNT_USED
+#define L_PTE_S2_REFCNT_USED	L_PGD_S2_REFCNT_USED
+
+#define L_PGD_S2_REFCNT_NONE	0
+#define L_PUD_S2_REFCNT_NONE	L_PGD_S2_REFCNT_NONE
+#define L_PMD_S2_REFCNT_NONE	L_PGD_S2_REFCNT_NONE
+#define L_PTE_S2_REFCNT_NONE	L_PGD_S2_REFCNT_NONE
+
+
+/*
  * Hyp-mode PL2 PTE definitions for LPAE.
  */
 #define L_PTE_HYP		L_PTE_USER
