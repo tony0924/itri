@@ -41,6 +41,17 @@ static unsigned long hyp_idmap_start;
 static unsigned long hyp_idmap_end;
 static phys_addr_t hyp_idmap_vector;
 
+#define pud_pfn(pud) (((pud_val(pud) & PUD_MASK) & PHYS_MASK) >> PAGE_SHIFT)
+/* cloning: we record all the shared page table to know that if we
+ * need to copy the page or just set the writable bit
+ * XXX: we'd better choose a more efficient way for recording */
+struct shared_pfn_list_entry{
+	pfn_t pfn;
+	struct list_head list;
+};
+static LIST_HEAD(shared_pfn_list);
+static DEFINE_SPINLOCK(shared_pfn_list_lock);
+
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
 	/*
@@ -890,16 +901,57 @@ out:
 	return err;
 }
 
-/* set the REFCNT bit to indicate this entry is shared by another vm */
-static void set_pmd_refcnt(pud_t *pud)
+static struct shared_pfn_list_entry* find_pfn(pfn_t pfn)
 {
-	int i;
-	pmd_t *pmd = pmd_offset(pud, 0);
+	struct shared_pfn_list_entry *p, *r;
 
-	for(i=0; i<PTRS_PER_PMD; i++) {
-		if (pmd_present(pmd[i]))
-			pmd[i] |= L_PMD_S2_REFCNT_USED;
+	r = NULL;
+	spin_lock(&shared_pfn_list_lock);
+
+	list_for_each_entry(p, &shared_pfn_list, list) {
+		if (p->pfn == pfn) {
+			r = p;
+			break;
+		}
 	}
+
+	spin_unlock(&shared_pfn_list_lock);
+	return r;
+}
+
+/* XXX: make sure we don't insert duplicate entry !? */
+static void add_shared_pfn(pfn_t pfn)
+{
+	struct shared_pfn_list_entry *p;
+
+	p = kmalloc(sizeof(struct shared_pfn_list_entry), GFP_KERNEL);
+	BUG_ON(p == NULL);
+	p->pfn = pfn;
+
+	spin_lock(&shared_pfn_list_lock);
+	list_add(&p->list, &shared_pfn_list);
+	spin_unlock(&shared_pfn_list_lock);
+}
+
+static void del_shared_pfn(pfn_t pfn)
+{
+	struct shared_pfn_list_entry *p;
+
+	p = find_pfn(pfn);
+	if (p == NULL) {
+		pr_err("Attempt to remove a non-existing pfn (%llx).\n", pfn);
+		return;
+	}
+
+	spin_lock(&shared_pfn_list_lock);
+	list_del(&p->list);
+	kfree(p);
+	spin_unlock(&shared_pfn_list_lock);
+}
+
+static bool is_pfn_shared(pfn_t pfn)
+{
+	return find_pfn(pfn);
 }
 
 /**
@@ -930,7 +982,7 @@ void kvm_set_memslot_non_present(struct kvm *kvm, struct kvm_memory_slot *memslo
 
 		if (pud_present(*pud)) {
 			set_pud(pud, __pud(pud_val(*pud) & ~PMD_TYPE_TABLE));
-			set_pmd_refcnt(pud);
+			add_shared_pfn(pud_pfn(*pud));
 		}
 
 		addr = pud_addr_end(addr, end);
