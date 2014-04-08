@@ -450,6 +450,8 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		pud_populate(NULL, pud, pmd);
 		get_page(virt_to_page(pud));
 	} else if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE) {
+		if (!cache)
+			return 0; /* ignore calls from kvm_set_spte_hva */
 		/* pud is present but fault, let's check if type fault */
 		if (!pmd_table(pud_val(*pud))) {
 			set_pud(pud, __pud(pud_val(*pud) | PMD_TYPE_TABLE));
