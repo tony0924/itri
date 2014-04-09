@@ -51,6 +51,8 @@ struct shared_pfn_list_entry{
 };
 static LIST_HEAD(shared_pfn_list);
 static DEFINE_SPINLOCK(shared_pfn_list_lock);
+void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
+		phys_addr_t addr, pud_t* pud);
 
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
@@ -454,7 +456,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 			return 0; /* ignore calls from kvm_set_spte_hva */
 		/* pud points a invalid table, let's check if in cloning */
 		if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE) {
-			set_pud(pud, __pud(pud_val(*pud) | PMD_TYPE_TABLE));
+			handle_coa_pud(kvm, cache, addr, pud);
 		}
 	}
 
@@ -468,6 +470,15 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		kvm_clean_pte(pte);
 		pmd_populate_kernel(NULL, pmd, pte);
 		get_page(virt_to_page(pmd));
+	} else if (!pmd_table(pmd_val(*pmd))) {
+		if (!cache)
+			return 0; /* ignore calls from kvm_set_spte_hva */
+		/* pmd points a invalid table, let's check if in cloning */
+		if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE) {
+			/* TODO: handle_coa_pmd */
+			*pmd |= PMD_TYPE_TABLE;
+			flush_pmd_entry(pmd);
+		}
 	}
 
 	pte = pte_offset_kernel(pmd, addr);
@@ -957,6 +968,64 @@ static bool is_pfn_shared(pfn_t pfn)
 }
 
 /**
+ */
+static void duplicate_pmd_and_set_non_present(pmd_t* new_pmd, pmd_t* old_pmd)
+{
+	int i;
+	for(i=0; i<PTRS_PER_PMD; i++) {
+		if (pmd_val(old_pmd[i])) {
+			new_pmd[i] = old_pmd[i] & ~PMD_TYPE_TABLE;
+			flush_pmd_entry(&new_pmd[i]);
+			/* pfn of pte table */
+			add_shared_pfn(pmd_pfn(new_pmd[i]));
+		}
+	}
+}
+
+/**
+ * Handle type fault in pud
+ * 1) if no one shares the pfn, just go to step 9
+ * 2) remove pfn from shared_pfn_list
+ * 3) allocate a new *new_pmd*
+ * 4-1) copy contents to *new_pmd*
+ * 4-2) modify each entries of new_pmd as non-present
+ * 4-3) add all pages pointed by pmd into shared_pfn_list
+ * 5) make pud to point to new_pmd
+ * 9) fix the type of pud
+ * **caller of stage2_set_pte has obtained mmu_lock**
+ */
+void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
+		phys_addr_t addr, pud_t* pud)
+{
+
+	/* These 2 point to a pmd "table", not a particular entry, we have
+	 * to clone the whole pmd table, so pmd_offset(pud, 0) to get a whole
+	 * table */
+	pmd_t *old_pmd, *new_pmd;
+
+	/* 1 */
+	old_pmd = pmd_offset(pud, 0);
+	if (is_pfn_shared(pud_pfn(*pud))) {
+		/* 2 */
+		del_shared_pfn(pud_pfn(*pud));
+		/* 3 */
+		new_pmd = mmu_memory_cache_alloc(cache);
+		/* 4 */
+		duplicate_pmd_and_set_non_present(new_pmd, old_pmd);
+		/* 5 pud_populate will set PMD_TYPE_TABLE */
+		pud_populate(NULL, pud, new_pmd);
+		/* XXX: necessary? */
+		get_page(virt_to_page(pud));
+
+		/* TODO: we don't have target ready, so, we remove old pmd for now */
+		free_page((unsigned long)old_pmd);
+	} else {
+		/* 9 */
+		set_pud(pud, __pud(pud_val(*pud) | PMD_TYPE_TABLE));
+	}
+}
+
+/**
  * kvm_set_memslot_non_present - set stage2 table of a given memslot page table non-present
  * This function will be invoked when qemu starts to clone a VM.
  * This is for memory copy-on-access.
@@ -984,6 +1053,7 @@ void kvm_set_memslot_non_present(struct kvm *kvm, struct kvm_memory_slot *memslo
 
 		if (pud_present(*pud)) {
 			set_pud(pud, __pud(pud_val(*pud) & ~PMD_TYPE_TABLE));
+			/* pmd table's pfn */
 			add_shared_pfn(pud_pfn(*pud));
 		}
 
