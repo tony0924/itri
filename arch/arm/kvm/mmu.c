@@ -41,7 +41,9 @@ static unsigned long hyp_idmap_start;
 static unsigned long hyp_idmap_end;
 static phys_addr_t hyp_idmap_vector;
 
-#define pud_pfn(pud) (((pud_val(pud) & PUD_MASK) & PHYS_MASK) >> PAGE_SHIFT)
+/* get the PFN of a particular table pointed by a pud/pmd entry */
+#define pud_to_pfn(x)	((pud_val(x) & PHYS_MASK) >> PAGE_SHIFT)
+#define pmd_to_pfn(x)	((pmd_val(x) & PHYS_MASK) >> PAGE_SHIFT)
 /* cloning: we record all the shared page table to know that if we
  * need to copy the page or just set the writable bit
  * XXX: we'd better choose a more efficient way for recording */
@@ -972,12 +974,13 @@ static bool is_pfn_shared(pfn_t pfn)
 static void duplicate_pmd_and_set_non_present(pmd_t* new_pmd, pmd_t* old_pmd)
 {
 	int i;
+
 	for(i=0; i<PTRS_PER_PMD; i++) {
 		if (pmd_val(old_pmd[i])) {
 			new_pmd[i] = old_pmd[i] & ~PMD_TYPE_TABLE;
 			flush_pmd_entry(&new_pmd[i]);
 			/* pfn of pte table */
-			add_shared_pfn(pmd_pfn(new_pmd[i]));
+			add_shared_pfn(pmd_to_pfn(new_pmd[i]));
 		}
 	}
 }
@@ -1005,9 +1008,9 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 
 	/* 1 */
 	old_pmd = pmd_offset(pud, 0);
-	if (is_pfn_shared(pud_pfn(*pud))) {
+	if (is_pfn_shared(pud_to_pfn(*pud))) {
 		/* 2 */
-		del_shared_pfn(pud_pfn(*pud));
+		del_shared_pfn(pud_to_pfn(*pud));
 		/* 3 */
 		new_pmd = mmu_memory_cache_alloc(cache);
 		/* 4 */
@@ -1054,7 +1057,7 @@ void kvm_set_memslot_non_present(struct kvm *kvm, struct kvm_memory_slot *memslo
 		if (pud_present(*pud)) {
 			set_pud(pud, __pud(pud_val(*pud) & ~PMD_TYPE_TABLE));
 			/* pmd table's pfn */
-			add_shared_pfn(pud_pfn(*pud));
+			add_shared_pfn(pud_to_pfn(*pud));
 		}
 
 		addr = pud_addr_end(addr, end);
