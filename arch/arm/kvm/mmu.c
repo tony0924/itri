@@ -44,6 +44,7 @@ static phys_addr_t hyp_idmap_vector;
 /* get the PFN of a particular table pointed by a pud/pmd entry */
 #define pud_to_pfn(x)	((pud_val(x) & PHYS_MASK) >> PAGE_SHIFT)
 #define pmd_to_pfn(x)	((pmd_val(x) & PHYS_MASK) >> PAGE_SHIFT)
+#define pte_to_pfn(x)	((pte_val(x) & PHYS_MASK) >> PAGE_SHIFT)
 /* cloning: we record all the shared page table to know that if we
  * need to copy the page or just set the writable bit
  * XXX: we'd better choose a more efficient way for recording */
@@ -55,6 +56,8 @@ static LIST_HEAD(shared_pfn_list);
 static DEFINE_SPINLOCK(shared_pfn_list_lock);
 void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pud_t* pud);
+void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
+		phys_addr_t addr, pmd_t* pmd);
 
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
@@ -477,9 +480,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 			return 0; /* ignore calls from kvm_set_spte_hva */
 		/* pmd points a invalid table, let's check if in cloning */
 		if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE) {
-			/* TODO: handle_coa_pmd */
-			*pmd |= PMD_TYPE_TABLE;
-			flush_pmd_entry(pmd);
+			handle_coa_pmd(kvm, cache, addr, pmd);
 		}
 	}
 
@@ -970,6 +971,7 @@ static bool is_pfn_shared(pfn_t pfn)
 }
 
 /**
+ * duplicate pmd table
  */
 static void duplicate_pmd_and_set_non_present(pmd_t* new_pmd, pmd_t* old_pmd)
 {
@@ -1026,6 +1028,54 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		/* 9 */
 		set_pud(pud, __pud(pud_val(*pud) | PMD_TYPE_TABLE));
 	}
+}
+
+/**
+ * duplicate PTE table
+ */
+static void duplicate_pte_and_set_non_present(pte_t* new_pte, pte_t* old_pte)
+{
+	int i;
+
+	for(i=0; i<PTRS_PER_PTE; i++) {
+		if (pte_val(old_pte[i])) {
+			pte_val(new_pte[i]) = pte_val(old_pte[i]) & ~L_PTE_PRESENT;
+			/* pfn of pte table */
+			add_shared_pfn(pte_to_pfn(new_pte[i]));
+			/* XXX: flush cache? */
+		}
+	}
+}
+
+/**
+ * Handle type fault in pmd
+ */
+void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
+		phys_addr_t addr, pmd_t* pmd)
+{
+
+	/* The same, these 2 point to a pte "table", not a particular entry */
+	pte_t *old_pte, *new_pte;
+
+	old_pte = pte_offset_kernel(pmd, 0);
+	if (is_pfn_shared(pmd_to_pfn(*pmd))) {
+		del_shared_pfn(pmd_to_pfn(*pmd));
+
+		new_pte = mmu_memory_cache_alloc(cache);
+		kvm_clean_pte(new_pte);
+		duplicate_pte_and_set_non_present(new_pte, old_pte);
+
+		pmd_populate_kernel(NULL, pmd, new_pte);
+		/* XXX: necessary? */
+		get_page(virt_to_page(pmd));
+
+		/* TODO: we don't have target ready, so, we remove old pmd for now */
+		free_page((unsigned long)old_pte);
+	} else {
+		pmd_val(*pmd) |= PMD_TYPE_TABLE;
+		flush_pmd_entry(pmd);
+	}
+	kvm_tlb_flush_vmid_ipa(kvm, addr);
 }
 
 /**
