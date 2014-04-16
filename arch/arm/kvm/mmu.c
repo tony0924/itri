@@ -979,8 +979,8 @@ static void duplicate_pmd_and_set_non_present(pmd_t* new_pmd, pmd_t* old_pmd)
 
 	for(i=0; i<PTRS_PER_PMD; i++) {
 		if (pmd_val(old_pmd[i])) {
-			new_pmd[i] = old_pmd[i] & ~PMD_TYPE_TABLE;
-			flush_pmd_entry(&new_pmd[i]);
+			pmd_val(old_pmd[i]) &= ~PMD_TYPE_TABLE;
+			copy_pmd(&new_pmd[i], &old_pmd[i]);
 			/* pfn of pte table */
 			add_shared_pfn(pmd_to_pfn(new_pmd[i]));
 		}
@@ -1002,7 +1002,6 @@ static void duplicate_pmd_and_set_non_present(pmd_t* new_pmd, pmd_t* old_pmd)
 void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pud_t* pud)
 {
-
 	/* These 2 point to a pmd "table", not a particular entry, we have
 	 * to clone the whole pmd table, so pmd_offset(pud, 0) to get a whole
 	 * table */
@@ -1039,7 +1038,8 @@ static void duplicate_pte_and_set_non_present(pte_t* new_pte, pte_t* old_pte)
 
 	for(i=0; i<PTRS_PER_PTE; i++) {
 		if (pte_val(old_pte[i])) {
-			pte_val(new_pte[i]) = pte_val(old_pte[i]) & ~L_PTE_PRESENT;
+			pte_val(old_pte[i]) &= ~L_PTE_PRESENT;
+			pte_val(new_pte[i]) = pte_val(old_pte[i]);
 			/* pfn of pte table */
 			add_shared_pfn(pte_to_pfn(new_pte[i]));
 			/* XXX: flush cache? */
@@ -1053,7 +1053,6 @@ static void duplicate_pte_and_set_non_present(pte_t* new_pte, pte_t* old_pte)
 void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pmd_t* pmd)
 {
-
 	/* The same, these 2 point to a pte "table", not a particular entry */
 	pte_t *old_pte, *new_pte;
 
