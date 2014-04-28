@@ -983,6 +983,7 @@ static void duplicate_pmd_and_set_non_present(pmd_t* new_pmd, pmd_t* old_pmd)
 			copy_pmd(&new_pmd[i], &old_pmd[i]);
 			/* pfn of pte table */
 			add_shared_pfn(pmd_to_pfn(new_pmd[i]));
+			get_page(virt_to_page(new_pmd));
 		}
 	}
 }
@@ -1043,6 +1044,7 @@ static void duplicate_pte_and_set_non_present(pte_t* new_pte, pte_t* old_pte)
 			/* pfn of pte table */
 			add_shared_pfn(pte_to_pfn(new_pte[i]));
 			/* XXX: flush cache? */
+			get_page(virt_to_page(new_pte));
 		}
 	}
 }
