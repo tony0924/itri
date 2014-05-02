@@ -58,6 +58,8 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pud_t* pud);
 void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pmd_t* pmd);
+void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
+		const pte_t *old_pte, const pte_t *new_pte);
 
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
@@ -495,6 +497,8 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	mark_page_dirty(kvm, addr >> PAGE_SHIFT);
 	if (pte_present(old_pte))
 		kvm_tlb_flush_vmid_ipa(kvm, addr);
+	else if (pte_val(old_pte) && kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE)
+		handle_coa_pte(kvm, addr, pte, &old_pte, new_pte);
 	else
 		get_page(virt_to_page(pte));
 
@@ -940,6 +944,7 @@ static void add_shared_pfn(pfn_t pfn)
 {
 	struct shared_pfn_list_entry *p;
 
+	//pr_err("%s pfn = %llx\n", __func__, pfn);
 	p = kmalloc(sizeof(struct shared_pfn_list_entry), GFP_KERNEL);
 	BUG_ON(p == NULL);
 	p->pfn = pfn;
@@ -953,6 +958,7 @@ static void del_shared_pfn(pfn_t pfn)
 {
 	struct shared_pfn_list_entry *p;
 
+	//pr_err("%s pfn = %llx\n", __func__, pfn);
 	p = find_pfn(pfn);
 	if (p == NULL) {
 		pr_err("Attempt to remove a non-existing pfn (%llx).\n", pfn);
@@ -1021,7 +1027,7 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		pud_populate(NULL, pud, new_pmd);
 
 		/* TODO: we don't have target ready, so, we remove old pmd for now */
-		free_page((unsigned long)old_pmd);
+		//free_page((unsigned long)old_pmd);
 	} else {
 		/* 9 */
 		set_pud(pud, __pud(pud_val(*pud) | PMD_TYPE_TABLE));
@@ -1069,7 +1075,7 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		kvm_flush_dcache_to_poc(pmd, sizeof(*pmd));
 
 		/* TODO: we don't have target ready, so, we remove old pmd for now */
-		free_page((unsigned long)old_pte);
+		//free_page((unsigned long)old_pte);
 	} else {
 		pmd_val(*pmd) |= PMD_TYPE_TABLE;
 		flush_pmd_entry(pmd);
@@ -1077,6 +1083,96 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	kvm_tlb_flush_vmid_ipa(kvm, addr);
 }
 
+unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t addr)
+{
+	unsigned long hva;
+	gfn_t gfn;
+	struct kvm_memory_slot *slot;
+
+	gfn = addr >> PAGE_SHIFT;
+	slot = gfn_to_memslot(kvm, gfn);
+	hva = __gfn_to_hva_memslot(slot, gfn);
+
+	return hva;
+}
+
+/**
+ */
+static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
+		const pte_t *old_pte, const pte_t *new_pte)
+{
+	pfn_t old_pfn, new_pfn;
+	old_pfn = pte_pfn(*old_pte);
+	new_pfn = pte_pfn(*new_pte);
+
+	if (unlikely(old_pfn != new_pfn)) {
+		pr_err("what!? SRC VM: old pfn = %llx, new pfn = %llx", old_pfn, new_pfn);
+		BUG();
+	}
+
+	if (is_pfn_shared(old_pfn)) {
+		/* get a page, copy content to it, put it into pool, unshare */
+		del_shared_pfn(old_pfn);
+	}
+	/* user_mem_abort has correctly modified the attributes and
+	 * stage2_set_pte has set new_pte, all we need to do is to
+	 * flush cache. */
+}
+
+/**
+ * source VM copy page content from *from* to HVA
+ */
+static void src_copy_coa_page(struct kvm *kvm, phys_addr_t addr,
+		void *from, void __user *hva)
+{
+
+}
+
+static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
+		const pte_t *old_pte, const pte_t *new_pte)
+{
+	pfn_t old_pfn, new_pfn;
+	void *from, *hva;
+	old_pfn = pte_pfn(*old_pte);
+	new_pfn = pte_pfn(*new_pte);
+
+	if (unlikely(old_pfn == new_pfn)) {
+		pr_err("what!? TARGET VM: old pfn = %llx, new pfn = %llx", old_pfn, new_pfn);
+		BUG();
+	}
+
+	hva = (void*)gpa_to_hva(kvm, addr);
+	if (is_pfn_shared(old_pfn)) {
+		/* find HVA, copy content to it, unshare, just leave old_pfn there */
+		/* from = old_pfn */
+		src_copy_coa_page(kvm, addr, from, hva);
+		del_shared_pfn(old_pfn);
+	} else {
+		/* from = pool */
+		src_copy_coa_page(kvm, addr, from, hva);
+	}
+}
+
+/**
+ * Handle type fault in pmd
+ * @addr: GPA of page fault
+ * @ptep: pointer of pte entry
+ * @old_pte: old pte value that contains old pfn
+ * @new_pte: correct pte value that contains pfn from qemu gfn_to_pfn
+ *
+ * Note that due to original kvm flow, the pte value has already been set to
+ * new_pte.
+ */
+void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
+		const pte_t *old_pte, const pte_t *new_pte)
+{
+	if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE)
+		handle_coa_pte_src(kvm, addr, ptep, old_pte, new_pte);
+	else
+		handle_coa_pte_target(kvm, addr, ptep, old_pte, new_pte);
+
+	kvm_tlb_flush_vmid_ipa(kvm, addr);
+}
 /**
  * kvm_set_memslot_non_present - set stage2 table of a given memslot page table non-present
  * This function will be invoked when qemu starts to clone a VM.
