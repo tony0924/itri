@@ -1188,7 +1188,7 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 static void target_copy_coa_page(struct kvm *kvm, phys_addr_t addr,
 		void *from, void __user *hva)
 {
-	if (copy_from_user(from, hva, PAGE_SIZE))
+	if (copy_to_user(hva, from, PAGE_SIZE))
 		pr_err("failed to copy original data\n");
 }
 
@@ -1219,6 +1219,7 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep
 		from = p->page;
 		target_copy_coa_page(kvm, addr, from, hva);
 		/* delete page in the pool*/
+		free_page((unsigned long)p->page);
 		page_pool_del(old_pfn);
 	}
 }
