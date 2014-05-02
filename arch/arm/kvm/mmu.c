@@ -52,8 +52,15 @@ struct shared_pfn_list_entry{
 	pfn_t pfn;
 	struct list_head list;
 };
+struct page_pool {
+	void *page; 
+	pfn_t pfn;
+	struct list_head list;
+};
 static LIST_HEAD(shared_pfn_list);
+static LIST_HEAD(page_pool_list);
 static DEFINE_SPINLOCK(shared_pfn_list_lock);
+static DEFINE_SPINLOCK(page_pool_list_lock);
 void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pud_t* pud);
 void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
@@ -63,7 +70,7 @@ void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
-	/*
+i	/*
 	 * This function also gets called when dealing with HYP page
 	 * tables. As HYP doesn't have an associated struct kvm (and
 	 * the HYP page tables are fairly static), we don't do
@@ -1081,6 +1088,50 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		flush_pmd_entry(pmd);
 	}
 	kvm_tlb_flush_vmid_ipa(kvm, addr);
+}
+
+static void page_pool_add(void *page, pfn_t pfn)
+{
+	struct page_pool *p;
+	p = kmalloc(sizeof(page_pool), GFP_KERNEL);
+	BUG_ON(p == NULL);
+	p->page = page;
+	p->pfn = pfn;
+	
+	spin_lock(&page_pool_list_lock);
+	list_add(&p->list, &page_pool_list);
+	spin_unlock(&page_pool_list_lock);
+}
+
+static struct page_pool* page_pool_search(void *page, pfn_t pfn)
+{
+	struct page_pool *p, *r;
+	r = NULL;
+	spin_lock(&page_pool_list_lock);
+	
+	list_for_each_entry(p, &page_pool_list, list){
+		if(p->pfn == pfn && p->page == page){
+			r = p;
+			break;
+		}
+	}
+
+	spin_unlock(&page_pool_list_lock);
+	return r;
+}
+
+static void page_pool_del(void *page, pfn_t pfn)
+{
+	struct page_pool *p;
+	p = page_pool_search(page, pfn);
+	if(p == NULL){
+		pr_err("Attemp to remove a non-existing page\n");
+	}
+
+	spin_lock(&page_pool_list_lock);
+	list_del(&p->list);
+	kfree(p);
+	spin_unlock(&page_pool_list_lock);
 }
 
 unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t addr)
