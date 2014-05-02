@@ -1019,8 +1019,6 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		duplicate_pmd_and_set_non_present(new_pmd, old_pmd);
 		/* 5 pud_populate will set PMD_TYPE_TABLE */
 		pud_populate(NULL, pud, new_pmd);
-		/* XXX: necessary? */
-		get_page(virt_to_page(pud));
 
 		/* TODO: we don't have target ready, so, we remove old pmd for now */
 		free_page((unsigned long)old_pmd);
@@ -1067,8 +1065,7 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		duplicate_pte_and_set_non_present(new_pte, old_pte);
 
 		pmd_populate_kernel(NULL, pmd, new_pte);
-		/* XXX: necessary? */
-		get_page(virt_to_page(pmd));
+
 		kvm_flush_dcache_to_poc(pmd, sizeof(*pmd));
 
 		/* TODO: we don't have target ready, so, we remove old pmd for now */
