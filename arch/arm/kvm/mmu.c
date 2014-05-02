@@ -1093,7 +1093,7 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 static void page_pool_add(void *page, pfn_t pfn)
 {
 	struct page_pool *p;
-	p = kmalloc(sizeof(page_pool), GFP_KERNEL);
+	p = kmalloc(sizeof(struct page_pool), GFP_KERNEL);
 	BUG_ON(p == NULL);
 	p->page = page;
 	p->pfn = pfn;
@@ -1125,7 +1125,8 @@ static void page_pool_del(pfn_t pfn)
 	struct page_pool *p;
 	p = page_pool_search(pfn);
 	if(p == NULL){
-		pr_err("Attemp to remove a non-existing page\n");
+		pr_err("Attemp to remove a non-existing page. pfn:%llx \n", pfn);
+		return;
 	}
 
 	spin_lock(&page_pool_list_lock);
@@ -1162,7 +1163,7 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 	}
 
 	if (is_pfn_shared(old_pfn)) {
-		/* get a page, copy content to it, put it into pool, unshare */
+		/* allocat a new page, copy content to it, put it into pool, unshare */
 		del_shared_pfn(old_pfn);
 	}
 	/* user_mem_abort has correctly modified the attributes and
