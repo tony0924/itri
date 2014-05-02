@@ -53,7 +53,7 @@ struct shared_pfn_list_entry{
 	struct list_head list;
 };
 struct page_pool {
-	void *page; 
+	void *page;
 	pfn_t pfn;
 	struct list_head list;
 };
@@ -70,7 +70,7 @@ void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
-i	/*
+	/*
 	 * This function also gets called when dealing with HYP page
 	 * tables. As HYP doesn't have an associated struct kvm (and
 	 * the HYP page tables are fairly static), we don't do
@@ -1097,20 +1097,20 @@ static void page_pool_add(void *page, pfn_t pfn)
 	BUG_ON(p == NULL);
 	p->page = page;
 	p->pfn = pfn;
-	
+
 	spin_lock(&page_pool_list_lock);
 	list_add(&p->list, &page_pool_list);
 	spin_unlock(&page_pool_list_lock);
 }
 
-static struct page_pool* page_pool_search(void *page, pfn_t pfn)
+static struct page_pool* page_pool_search(pfn_t pfn)
 {
 	struct page_pool *p, *r;
 	r = NULL;
 	spin_lock(&page_pool_list_lock);
-	
+
 	list_for_each_entry(p, &page_pool_list, list){
-		if(p->pfn == pfn && p->page == page){
+		if(p->pfn == pfn){
 			r = p;
 			break;
 		}
@@ -1120,10 +1120,10 @@ static struct page_pool* page_pool_search(void *page, pfn_t pfn)
 	return r;
 }
 
-static void page_pool_del(void *page, pfn_t pfn)
+static void page_pool_del(pfn_t pfn)
 {
 	struct page_pool *p;
-	p = page_pool_search(page, pfn);
+	p = page_pool_search(pfn);
 	if(p == NULL){
 		pr_err("Attemp to remove a non-existing page\n");
 	}
