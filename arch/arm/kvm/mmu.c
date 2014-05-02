@@ -1209,8 +1209,9 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep
 	hva = (void*)gpa_to_hva(kvm, addr);
 	if (is_pfn_shared(old_pfn)) {
 		/* find HVA, copy content to it, unshare, just leave old_pfn there */
-		/* from = old_pfn */
+		from = kmap(pfn_to_page(old_pfn));
 		target_copy_coa_page(kvm, addr, from, hva);
+		kunmap(pfn_to_page(old_pfn));
 		del_shared_pfn(old_pfn);
 	} else {
 		/* from = pool */
