@@ -1185,10 +1185,11 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 /**
  * source VM copy page content from *from* to HVA
  */
-static void src_copy_coa_page(struct kvm *kvm, phys_addr_t addr,
+static void target_copy_coa_page(struct kvm *kvm, phys_addr_t addr,
 		void *from, void __user *hva)
 {
-
+	if (copy_from_user(from, hva, PAGE_SIZE))
+		pr_err("failed to copy original data\n");
 }
 
 static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
@@ -1196,6 +1197,7 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep
 {
 	pfn_t old_pfn, new_pfn;
 	void *from, *hva;
+	struct page_pool *p;
 	old_pfn = pte_pfn(*old_pte);
 	new_pfn = pte_pfn(*new_pte);
 
@@ -1208,11 +1210,16 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep
 	if (is_pfn_shared(old_pfn)) {
 		/* find HVA, copy content to it, unshare, just leave old_pfn there */
 		/* from = old_pfn */
-		src_copy_coa_page(kvm, addr, from, hva);
+		target_copy_coa_page(kvm, addr, from, hva);
 		del_shared_pfn(old_pfn);
 	} else {
 		/* from = pool */
-		src_copy_coa_page(kvm, addr, from, hva);
+		p = page_pool_search(old_pfn);
+		BUG_ON(p == NULL);
+		from = p->page;
+		target_copy_coa_page(kvm, addr, from, hva);
+		/* delete page in the pool*/
+		page_pool_del(old_pfn);
 	}
 }
 
