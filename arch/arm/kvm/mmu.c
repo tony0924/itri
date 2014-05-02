@@ -1069,6 +1069,7 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		pmd_populate_kernel(NULL, pmd, new_pte);
 		/* XXX: necessary? */
 		get_page(virt_to_page(pmd));
+		kvm_flush_dcache_to_poc(pmd, sizeof(*pmd));
 
 		/* TODO: we don't have target ready, so, we remove old pmd for now */
 		free_page((unsigned long)old_pte);
