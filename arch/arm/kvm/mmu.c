@@ -1149,11 +1149,14 @@ unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t addr)
 }
 
 /**
+ * handle_coa_pte_src - handle CoW on pte for source VM
+ * allocate a new page, copy content to it, put it into pool, unshare
  */
 static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 		const pte_t *old_pte, const pte_t *new_pte)
 {
 	pfn_t old_pfn, new_pfn;
+	void *page, __user *hva;
 	old_pfn = pte_pfn(*old_pte);
 	new_pfn = pte_pfn(*new_pte);
 
@@ -1163,7 +1166,15 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 	}
 
 	if (is_pfn_shared(old_pfn)) {
-		/* allocat a new page, copy content to it, put it into pool, unshare */
+		hva = (void *)gpa_to_hva(kvm, addr);
+		page = (void *)__get_free_page(PGALLOC_GFP);
+		if (page == NULL)
+			pr_err("failed to __get_free_page\n");
+
+		if (copy_from_user(page, hva, PAGE_SIZE))
+			pr_err("failed to copy original data\n");
+
+		page_pool_add(page, old_pfn);
 		del_shared_pfn(old_pfn);
 	}
 	/* user_mem_abort has correctly modified the attributes and
