@@ -877,6 +877,27 @@ int kvm_arm_setup_cloning_role(struct kvm *kvm, int role)
 	return ret;
 }
 
+int kvm_arm_get_pgd(struct kvm *kvm, void __user *buf)
+{
+	int i;
+	unsigned long addr = 0;
+	pgd_t zero_pgd = {0};
+
+	if(copy_from_user(kvm->arch.pgd, buf, PTRS_PER_S2_PGD * sizeof(pgd_t)))
+		return -EFAULT;
+
+	for(i=0; i<PTRS_PER_S2_PGD; i++) {
+		pr_err("addr: %lx\n", addr);
+		if (!gfn_to_memslot(kvm, addr >> PAGE_SHIFT)) {
+			if (put_user(zero_pgd, (pgd_t*)buf+i))
+				return -EFAULT;
+		}
+		addr = PGDIR_SIZE * i;
+	}
+
+	return 0;
+}
+
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
@@ -903,7 +924,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	case KVM_ARM_GET_S2_PGD: {
 		if (!kvm->arch.pgd)
 			return -EFAULT;
-		return copy_to_user(argp, kvm->arch.pgd, PTRS_PER_S2_PGD * sizeof(pgd_t));
+		return kvm_arm_get_pgd(kvm, argp);
 	}
 	case KVM_ARM_SET_S2_PGD: {
 		if (!kvm->arch.pgd)
