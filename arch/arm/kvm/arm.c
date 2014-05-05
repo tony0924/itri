@@ -880,7 +880,6 @@ int kvm_arm_setup_cloning_role(struct kvm *kvm, int role)
 int kvm_arm_get_pgd(struct kvm *kvm, void __user *buf)
 {
 	int i, idx;
-	pgd_t zero_pgd = {0};
 	bool *is_pgd_ram;
 	struct kvm_memory_slot *memslot;
 	struct kvm_memslots *slots;
@@ -903,7 +902,7 @@ int kvm_arm_get_pgd(struct kvm *kvm, void __user *buf)
 
 	for(i=0; i<PTRS_PER_S2_PGD; i++) {
 		if (!is_pgd_ram[i]) {
-			if (put_user(zero_pgd, (pgd_t*)buf+i)) {
+			if (put_user(__pgd(0), (pgd_t*)buf+i)) {
 				kfree(is_pgd_ram);
 				return -EFAULT;
 			}
