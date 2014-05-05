@@ -879,22 +879,38 @@ int kvm_arm_setup_cloning_role(struct kvm *kvm, int role)
 
 int kvm_arm_get_pgd(struct kvm *kvm, void __user *buf)
 {
-	int i;
-	unsigned long addr = 0;
+	int i, idx;
 	pgd_t zero_pgd = {0};
+	bool *is_pgd_ram;
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots;
 
 	if(copy_from_user(kvm->arch.pgd, buf, PTRS_PER_S2_PGD * sizeof(pgd_t)))
 		return -EFAULT;
 
-	for(i=0; i<PTRS_PER_S2_PGD; i++) {
-		pr_err("addr: %lx\n", addr);
-		if (!gfn_to_memslot(kvm, addr >> PAGE_SHIFT)) {
-			if (put_user(zero_pgd, (pgd_t*)buf+i))
-				return -EFAULT;
+	is_pgd_ram = kmalloc(sizeof(bool) * PTRS_PER_S2_PGD, GFP_KERNEL | __GFP_ZERO);
+
+	slots = kvm_memslots(kvm);
+	kvm_for_each_memslot(memslot, slots) {
+		phys_addr_t addr = memslot->base_gfn << PAGE_SHIFT;
+		phys_addr_t end = addr + (memslot->npages << PAGE_SHIFT);
+		while(addr < end) {
+			idx = pgd_index(addr);
+			is_pgd_ram[idx] = true;
+			addr = pgd_addr_end(addr, end);
 		}
-		addr = PGDIR_SIZE * i;
 	}
 
+	for(i=0; i<PTRS_PER_S2_PGD; i++) {
+		if (!is_pgd_ram[i]) {
+			if (put_user(zero_pgd, (pgd_t*)buf+i)) {
+				kfree(is_pgd_ram);
+				return -EFAULT;
+			}
+		}
+	}
+
+	kfree(is_pgd_ram);
 	return 0;
 }
 
