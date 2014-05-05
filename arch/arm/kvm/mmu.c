@@ -61,6 +61,7 @@ static LIST_HEAD(shared_pfn_list);
 static LIST_HEAD(page_pool_list);
 static DEFINE_SPINLOCK(shared_pfn_list_lock);
 static DEFINE_SPINLOCK(page_pool_list_lock);
+static DEFINE_SPINLOCK(handle_coa_lock);
 void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pud_t* pud);
 void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
@@ -1021,6 +1022,7 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	 * table */
 	pmd_t *old_pmd, *new_pmd;
 
+	spin_lock(&handle_coa_lock);
 	/* 1 */
 	old_pmd = pmd_offset(pud, 0);
 	if (is_pfn_shared(pud_to_pfn(*pud))) {
@@ -1039,6 +1041,7 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		/* 9 */
 		set_pud(pud, __pud(pud_val(*pud) | PMD_TYPE_TABLE));
 	}
+	spin_unlock(&handle_coa_lock);
 }
 
 /**
@@ -1069,6 +1072,8 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	/* The same, these 2 point to a pte "table", not a particular entry */
 	pte_t *old_pte, *new_pte;
 
+	spin_lock(&handle_coa_lock);
+
 	old_pte = pte_offset_kernel(pmd, 0);
 	if (is_pfn_shared(pmd_to_pfn(*pmd))) {
 		del_shared_pfn(pmd_to_pfn(*pmd));
@@ -1088,6 +1093,8 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		flush_pmd_entry(pmd);
 	}
 	kvm_tlb_flush_vmid_ipa(kvm, addr);
+
+	spin_unlock(&handle_coa_lock);
 }
 
 static void page_pool_add(void *page, pfn_t pfn)
@@ -1238,12 +1245,14 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep
 void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 		const pte_t *old_pte, const pte_t *new_pte)
 {
+	spin_lock(&handle_coa_lock);
 	if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE)
 		handle_coa_pte_src(kvm, addr, ptep, old_pte, new_pte);
 	else
 		handle_coa_pte_target(kvm, addr, ptep, old_pte, new_pte);
 
 	kvm_tlb_flush_vmid_ipa(kvm, addr);
+	spin_unlock(&handle_coa_lock);
 }
 /**
  * kvm_set_memslot_non_present - set stage2 table of a given memslot page table non-present
