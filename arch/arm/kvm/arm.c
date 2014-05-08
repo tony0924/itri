@@ -917,7 +917,7 @@ int kvm_arm_set_unshare(struct kvm *kvm, struct kvm_userspace_memory_region *mem
 {
 	gfn_t gfn;
 	phys_addr_t addr;
-	int ret=0,i;
+	int ret = 0, i;
 	unsigned long npages;
 
 	gfn = mem->guest_phys_addr >> PAGE_SHIFT;
@@ -925,9 +925,9 @@ int kvm_arm_set_unshare(struct kvm *kvm, struct kvm_userspace_memory_region *mem
 	npages = mem->memory_size >> PAGE_SHIFT;
 
 	for(i=0; i<npages; i++){
-		gfn = gfn + 1;
-		addr = addr + PAGE_SIZE;
-		ret =  __kvm_arm_set_unshare(kvm, gfn, addr);
+		ret = __kvm_arm_set_unshare(kvm, gfn, addr);
+		gfn++;
+		addr += PAGE_SIZE;
 	}
 
 	return ret;
