@@ -884,7 +884,7 @@ int kvm_arm_get_pgd(struct kvm *kvm, void __user *buf)
 	struct kvm_memory_slot *memslot;
 	struct kvm_memslots *slots;
 
-	if(copy_to_user(kvm->arch.pgd, buf, PTRS_PER_S2_PGD * sizeof(pgd_t)))
+	if(copy_to_user(buf, kvm->arch.pgd, PTRS_PER_S2_PGD * sizeof(pgd_t)))
 		return -EFAULT;
 
 	is_pgd_ram = kmalloc(sizeof(bool) * PTRS_PER_S2_PGD, GFP_KERNEL | __GFP_ZERO);
