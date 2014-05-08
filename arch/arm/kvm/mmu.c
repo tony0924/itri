@@ -470,7 +470,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		if (!cache)
 			return 0; /* ignore calls from kvm_set_spte_hva */
 		/* pud points a invalid table, let's check if in cloning */
-		if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE) {
+		if (kvm->arch.cloning_role) {
 			handle_coa_pud(kvm, cache, addr, pud);
 		}
 	}
@@ -489,7 +489,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		if (!cache)
 			return 0; /* ignore calls from kvm_set_spte_hva */
 		/* pmd points a invalid table, let's check if in cloning */
-		if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE) {
+		if (kvm->arch.cloning_role) {
 			handle_coa_pmd(kvm, cache, addr, pmd);
 		}
 	}
@@ -505,7 +505,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	mark_page_dirty(kvm, addr >> PAGE_SHIFT);
 	if (pte_present(old_pte))
 		kvm_tlb_flush_vmid_ipa(kvm, addr);
-	else if (pte_val(old_pte) && kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE)
+	else if (pte_val(old_pte) && kvm->arch.cloning_role)
 		handle_coa_pte(kvm, addr, pte, &old_pte, new_pte);
 	else
 		get_page(virt_to_page(pte));
@@ -1035,8 +1035,6 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		/* 5 pud_populate will set PMD_TYPE_TABLE */
 		pud_populate(NULL, pud, new_pmd);
 
-		/* TODO: we don't have target ready, so, we remove old pmd for now */
-		//free_page((unsigned long)old_pmd);
 	} else {
 		/* 9 */
 		set_pud(pud, __pud(pud_val(*pud) | PMD_TYPE_TABLE));
@@ -1086,8 +1084,6 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 
 		kvm_flush_dcache_to_poc(pmd, sizeof(*pmd));
 
-		/* TODO: we don't have target ready, so, we remove old pmd for now */
-		//free_page((unsigned long)old_pte);
 	} else {
 		pmd_val(*pmd) |= PMD_TYPE_TABLE;
 		flush_pmd_entry(pmd);
@@ -1179,7 +1175,7 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 			pr_err("failed to __get_free_page\n");
 
 		if (copy_from_user(page, hva, PAGE_SIZE))
-			pr_err("failed to copy original data\n");
+			pr_err("source failed to copy original data\n");
 
 		page_pool_add(page, old_pfn);
 		del_shared_pfn(old_pfn);
@@ -1196,7 +1192,7 @@ static void target_copy_coa_page(struct kvm *kvm, phys_addr_t addr,
 		void *from, void __user *hva)
 {
 	if (copy_to_user(hva, from, PAGE_SIZE))
-		pr_err("failed to copy original data\n");
+		pr_err("target failed to copy original data\n");
 }
 
 static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
