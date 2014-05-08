@@ -27,7 +27,6 @@
 #include <asm/kvm_mmio.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
-#include <linux/uaccess.h>
 
 #include "trace.h"
 
@@ -1192,21 +1191,8 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 static void target_copy_coa_page(struct kvm *kvm, phys_addr_t addr,
 		void *from, void __user *hva)
 {
-	int ret;
-	void *page;
-	page = (void *)__get_free_page(PGALLOC_GFP);
-	if(page == NULL)
-		pr_err("failed to __get_free_page\n");
-	memcpy(page, from, PAGE_SIZE);
-	ret = memcmp(page,from,PAGE_SIZE);
-	if(ret)
-		pr_err("from is wrong. target failed to copy original data. ret:%d\n", ret);
-	if (!access_ok(VERIFY_WRITE, hva, sizeof (*hva)))
-		pr_err("what!! write HVA is not ok\n");
-	ret = copy_to_user(hva, page, PAGE_SIZE);
-	//if (copy_to_user(hva, from, PAGE_SIZE))
-	if(ret)
-		pr_err("HVA is worng. target failed to copy original data. ret:%d\n", ret);
+	if (copy_to_user(hva, from, PAGE_SIZE))
+		pr_err("target failed to copy original data\n");
 }
 
 static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
