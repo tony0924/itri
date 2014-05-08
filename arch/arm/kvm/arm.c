@@ -913,6 +913,26 @@ int kvm_arm_get_pgd(struct kvm *kvm, void __user *buf)
 	return 0;
 }
 
+int kvm_arm_set_unshare(struct kvm *kvm, struct kvm_userspace_memory_region *mem)
+{
+	gfn_t gfn;
+	phys_addr_t addr;
+	int ret=0,i;
+	unsigned long npages;
+
+	gfn = mem->guest_phys_addr >> PAGE_SHIFT;
+	addr = mem->guest_phys_addr;
+	npages = mem->memory_size >> PAGE_SHIFT;
+
+	for(i=0; i<npages; i++){
+		gfn = gfn + 1;
+		addr = addr + PAGE_SIZE;
+		ret =  __kvm_arm_set_unshare(kvm, gfn, addr);
+	}
+
+	return ret;
+}
+
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
@@ -953,6 +973,13 @@ long kvm_arch_vm_ioctl(struct file *filp,
 			return -EINVAL;
 		}
 		return kvm_arm_setup_cloning_role(kvm, arg);
+	}
+	case KVM_ARM_SET_UNSHARE_MEMSLOT: {
+		struct kvm_userspace_memory_region kvm_userspace_mem;
+
+		if (copy_from_user(&kvm_userspace_mem, argp, sizeof kvm_userspace_mem))
+
+		return kvm_arm_set_unshare(kvm, &kvm_userspace_mem);
 	}
 	default:
 		return -EINVAL;

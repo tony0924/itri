@@ -27,6 +27,7 @@
 #include <asm/kvm_mmio.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
+#include <linux/uaccess.h>
 
 #include "trace.h"
 
@@ -1191,8 +1192,21 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 static void target_copy_coa_page(struct kvm *kvm, phys_addr_t addr,
 		void *from, void __user *hva)
 {
-	if (copy_to_user(hva, from, PAGE_SIZE))
-		pr_err("target failed to copy original data\n");
+	int ret;
+	void *page;
+	page = (void *)__get_free_page(PGALLOC_GFP);
+	if(page == NULL)
+		pr_err("failed to __get_free_page\n");
+	memcpy(page, from, PAGE_SIZE);
+	ret = memcmp(page,from,PAGE_SIZE);
+	if(ret)
+		pr_err("from is wrong. target failed to copy original data. ret:%d\n", ret);
+	if (!access_ok(VERIFY_WRITE, hva, sizeof (*hva)))
+		pr_err("what!! write HVA is not ok\n");
+	ret = copy_to_user(hva, page, PAGE_SIZE);
+	//if (copy_to_user(hva, from, PAGE_SIZE))
+	if(ret)
+		pr_err("HVA is worng. target failed to copy original data. ret:%d\n", ret);
 }
 
 static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
@@ -1298,4 +1312,27 @@ void mark_s2_non_present(struct kvm *kvm)
 	kvm_for_each_memslot(memslot, slots) {
 		kvm_set_memslot_non_present(kvm, memslot);
 	}
+}
+
+int __kvm_arm_set_unshare(struct kvm *kvm, gfn_t gfn, phys_addr_t addr)
+{
+	pte_t new_pte;
+	pfn_t pfn;
+	int ret;
+	struct kvm_mmu_memory_cache *memcache = &kvm->vcpus[0]->arch.mmu_page_cache;
+
+	ret = mmu_topup_memory_cache(memcache, 2, KVM_NR_MEM_OBJS);
+	if (ret)
+		return ret;
+
+	pfn = gfn_to_pfn(kvm, gfn);
+	if (is_error_pfn(pfn))
+		return -EFAULT;
+
+	new_pte = pfn_pte(pfn, PAGE_S2);
+	coherent_icache_guest_page(kvm, gfn);
+
+	stage2_set_pte(kvm, memcache, addr, &new_pte, false);
+
+	return 0;
 }
