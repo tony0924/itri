@@ -133,7 +133,7 @@ static inline void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
 #define kvm_flush_dcache_to_poc(a,l)	__cpuc_flush_dcache_area((a), (l))
 
 void mark_s2_non_present(struct kvm *kvm);
-int __kvm_arm_set_unshare(struct kvm *kvm, gfn_t gfn, phys_addr_t addr);
+int kvm_arm_unshare_gfns(struct kvm *kvm, struct kvm_userspace_memory_region *mem);
 
 #endif	/* !__ASSEMBLY__ */
 

@@ -913,27 +913,6 @@ int kvm_arm_get_pgd(struct kvm *kvm, void __user *buf)
 	return 0;
 }
 
-int kvm_arm_set_unshare(struct kvm *kvm, struct kvm_userspace_memory_region *mem)
-{
-	gfn_t gfn;
-	phys_addr_t addr;
-	int ret = 0, i;
-	unsigned long npages;
-
-	gfn = mem->guest_phys_addr >> PAGE_SHIFT;
-	addr = mem->guest_phys_addr;
-	/* momery_size is not page_aligned by qemu */
-	npages = PAGE_ALIGN(mem->memory_size) >> PAGE_SHIFT;
-
-	for(i=0; i<npages; i++){
-		ret = __kvm_arm_set_unshare(kvm, gfn, addr);
-		gfn++;
-		addr += PAGE_SIZE;
-	}
-
-	return ret;
-}
-
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
@@ -975,7 +954,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		}
 		return kvm_arm_setup_cloning_role(kvm, arg);
 	}
-	case KVM_ARM_SET_UNSHARE_MEMSLOT: {
+	case KVM_ARM_UNSHARE_GFNS: {
 		struct kvm_userspace_memory_region kvm_userspace_mem;
 
 		if (copy_from_user(&kvm_userspace_mem, argp, sizeof kvm_userspace_mem)) {
@@ -983,7 +962,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 			return -EFAULT;
 		}
 
-		return kvm_arm_set_unshare(kvm, &kvm_userspace_mem);
+		return kvm_arm_unshare_gfns(kvm, &kvm_userspace_mem);
 	}
 	default:
 		return -EINVAL;

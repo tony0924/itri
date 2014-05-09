@@ -1300,7 +1300,7 @@ void mark_s2_non_present(struct kvm *kvm)
 	}
 }
 
-int __kvm_arm_set_unshare(struct kvm *kvm, gfn_t gfn, phys_addr_t addr)
+static int kvm_arm_unshare_gfn(struct kvm *kvm, gfn_t gfn, phys_addr_t addr)
 {
 	pte_t new_pte;
 	pfn_t pfn;
@@ -1321,4 +1321,25 @@ int __kvm_arm_set_unshare(struct kvm *kvm, gfn_t gfn, phys_addr_t addr)
 	stage2_set_pte(kvm, memcache, addr, &new_pte, false);
 
 	return 0;
+}
+
+int kvm_arm_unshare_gfns(struct kvm *kvm, struct kvm_userspace_memory_region *mem)
+{
+	gfn_t gfn;
+	phys_addr_t addr;
+	int ret = 0, i;
+	unsigned long npages;
+
+	gfn = mem->guest_phys_addr >> PAGE_SHIFT;
+	addr = mem->guest_phys_addr;
+	/* momery_size is not page_aligned by qemu */
+	npages = PAGE_ALIGN(mem->memory_size) >> PAGE_SHIFT;
+
+	for(i=0; i<npages; i++){
+		ret = kvm_arm_unshare_gfn(kvm, gfn, addr);
+		gfn++;
+		addr += PAGE_SIZE;
+	}
+
+	return ret;
 }
