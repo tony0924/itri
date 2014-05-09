@@ -977,7 +977,10 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	case KVM_ARM_SET_UNSHARE_MEMSLOT: {
 		struct kvm_userspace_memory_region kvm_userspace_mem;
 
-		if (copy_from_user(&kvm_userspace_mem, argp, sizeof kvm_userspace_mem))
+		if (copy_from_user(&kvm_userspace_mem, argp, sizeof kvm_userspace_mem)) {
+			pr_err("cannot get kvm_userspace_mem\n");
+			return -EFAULT;
+		}
 
 		return kvm_arm_set_unshare(kvm, &kvm_userspace_mem);
 	}
