@@ -922,7 +922,8 @@ int kvm_arm_set_unshare(struct kvm *kvm, struct kvm_userspace_memory_region *mem
 
 	gfn = mem->guest_phys_addr >> PAGE_SHIFT;
 	addr = mem->guest_phys_addr;
-	npages = mem->memory_size >> PAGE_SHIFT;
+	/* momery_size is not page_aligned by qemu */
+	npages = PAGE_ALIGN(mem->memory_size) >> PAGE_SHIFT;
 
 	for(i=0; i<npages; i++){
 		ret = __kvm_arm_set_unshare(kvm, gfn, addr);
