@@ -68,6 +68,7 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pmd_t* pmd);
 void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 		const pte_t *old_pte, const pte_t *new_pte);
+void print_page_table(unsigned long va);
 
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
@@ -1149,6 +1150,37 @@ unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t gpa)
 	hva = __gfn_to_hva_memslot(slot, gfn);
 
 	return hva;
+}
+
+void print_page_table(unsigned long va)
+{
+	pgd_t* pgd;
+	pud_t* pud;
+	pmd_t* pmd;
+	pte_t* pte;
+
+	pgd = pgd_offset(current->mm, va);
+	pr_err("pgd = %p  *pgd = %llx\n", pgd, pgd_val(*pgd));
+	if (!pgd_present(*pgd))
+		return;
+
+	pud = pud_offset(pgd, va);
+	pr_err("pud = %p  *pud = %llx\n", pud, pud_val(*pud));
+	if (!pud_present(*pud))
+		return;
+
+	pmd = pmd_offset(pud, va);
+	pr_err("pmd = %p  *pmd = %llx\n", pmd, pmd_val(*pmd));
+	if (!pmd_present(*pmd))
+		return;
+
+	if (pmd_sect(*pmd)) {
+		pr_err(" pmd points a section pmd_write() = %d\n", pmd_write(*pmd));
+		return;
+	}
+
+	pte = pte_offset_kernel(pmd, va);
+	pr_err("pte = %p  *pte = %llx\n", pte, pte_val(*pte));
 }
 
 /**
