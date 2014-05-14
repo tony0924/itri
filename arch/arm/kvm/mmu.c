@@ -1015,7 +1015,7 @@ static void duplicate_pmd_and_set_non_present(pmd_t* new_pmd, pmd_t* old_pmd)
  * **caller of stage2_set_pte has obtained mmu_lock**
  */
 void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
-		phys_addr_t addr, pud_t* pud)
+		phys_addr_t gpa, pud_t* pud)
 {
 	/* These 2 point to a pmd "table", not a particular entry, we have
 	 * to clone the whole pmd table, so pmd_offset(pud, 0) to get a whole
@@ -1065,7 +1065,7 @@ static void duplicate_pte_and_set_non_present(pte_t* new_pte, pte_t* old_pte)
  * Handle type fault in pmd
  */
 void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
-		phys_addr_t addr, pmd_t* pmd)
+		phys_addr_t gpa, pmd_t* pmd)
 {
 	/* The same, these 2 point to a pte "table", not a particular entry */
 	pte_t *old_pte, *new_pte;
@@ -1088,7 +1088,7 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		pmd_val(*pmd) |= PMD_TYPE_TABLE;
 		flush_pmd_entry(pmd);
 	}
-	kvm_tlb_flush_vmid_ipa(kvm, addr);
+	kvm_tlb_flush_vmid_ipa(kvm, gpa);
 
 	spin_unlock(&handle_coa_lock);
 }
@@ -1138,13 +1138,13 @@ static void page_pool_del(pfn_t pfn)
 	spin_unlock(&page_pool_list_lock);
 }
 
-unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t addr)
+unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t gpa)
 {
 	unsigned long hva;
 	gfn_t gfn;
 	struct kvm_memory_slot *slot;
 
-	gfn = addr >> PAGE_SHIFT;
+	gfn = gpa >> PAGE_SHIFT;
 	slot = gfn_to_memslot(kvm, gfn);
 	hva = __gfn_to_hva_memslot(slot, gfn);
 
@@ -1155,7 +1155,7 @@ unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t addr)
  * handle_coa_pte_src - handle CoW on pte for source VM
  * allocate a new page, copy content to it, put it into pool, unshare
  */
-static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
+static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t gpa, pte_t *ptep,
 		const pte_t *old_pte, const pte_t *new_pte)
 {
 	pfn_t old_pfn, new_pfn;
@@ -1169,7 +1169,7 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 	}
 
 	if (is_pfn_shared(old_pfn)) {
-		hva = (void *)gpa_to_hva(kvm, addr);
+		hva = (void *)gpa_to_hva(kvm, gpa);
 		page = (void *)__get_free_page(PGALLOC_GFP);
 		if (page == NULL)
 			pr_err("failed to __get_free_page\n");
@@ -1188,14 +1188,14 @@ static void handle_coa_pte_src(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 /**
  * source VM copy page content from *from* to HVA
  */
-static void target_copy_coa_page(struct kvm *kvm, phys_addr_t addr,
+static void target_copy_coa_page(struct kvm *kvm, phys_addr_t gpa,
 		void *from, void __user *hva)
 {
 	if (copy_to_user(hva, from, PAGE_SIZE))
 		pr_err("target failed to copy original data\n");
 }
 
-static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
+static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t gpa, pte_t *ptep,
 		const pte_t *old_pte, const pte_t *new_pte)
 {
 	pfn_t old_pfn, new_pfn;
@@ -1209,11 +1209,11 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep
 		BUG();
 	}
 
-	hva = (void*)gpa_to_hva(kvm, addr);
+	hva = (void*)gpa_to_hva(kvm, gpa);
 	if (is_pfn_shared(old_pfn)) {
 		/* find HVA, copy content to it, unshare, just leave old_pfn there */
 		from = kmap(pfn_to_page(old_pfn));
-		target_copy_coa_page(kvm, addr, from, hva);
+		target_copy_coa_page(kvm, gpa, from, hva);
 		kunmap(pfn_to_page(old_pfn));
 		del_shared_pfn(old_pfn);
 	} else {
@@ -1221,7 +1221,7 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t addr, pte_t *ptep
 		p = page_pool_search(old_pfn);
 		BUG_ON(p == NULL);
 		from = p->page;
-		target_copy_coa_page(kvm, addr, from, hva);
+		target_copy_coa_page(kvm, gpa, from, hva);
 		/* delete page in the pool*/
 		free_page((unsigned long)p->page);
 		page_pool_del(old_pfn);
