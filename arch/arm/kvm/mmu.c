@@ -69,6 +69,7 @@ void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 		const pte_t *old_pte, const pte_t *new_pte);
 void print_page_table(unsigned long va);
+unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t addr);
 
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
@@ -601,6 +602,26 @@ out:
 	return ret;
 }
 
+static bool gfn_is_writable(struct kvm *kvm, gfn_t gfn)
+{
+	bool vma_writable, memslot_writable;
+	unsigned long hva;
+	struct vm_area_struct *vma;
+	struct kvm_memory_slot *slot;
+
+	hva = gpa_to_hva(kvm, gfn << PAGE_SHIFT);
+	BUG_ON(hva == 0);
+	vma = find_vma(current->mm, hva);
+	BUG_ON(vma == NULL);
+	vma_writable = vma->vm_flags & VM_WRITE;
+
+	slot = gfn_to_memslot(kvm, gfn);
+	BUG_ON(slot == NULL);
+	memslot_writable = !(slot->flags & KVM_MEM_READONLY);
+
+	return vma_writable && memslot_writable;
+}
+
 static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			  gfn_t gfn, struct kvm_memory_slot *memslot,
 			  unsigned long fault_status)
@@ -608,7 +629,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	pte_t new_pte;
 	pfn_t pfn;
 	int ret;
-	bool write_fault, writable;
+	bool write_fault, writable, is_writable;
 	unsigned long mmu_seq;
 	struct kvm_mmu_memory_cache *memcache = &vcpu->arch.mmu_page_cache;
 
@@ -636,7 +657,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	 */
 	smp_rmb();
 
-	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
+	is_writable = gfn_is_writable(vcpu->kvm, gfn) ? true : write_fault;
+	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, is_writable, &writable);
 	if (is_error_pfn(pfn))
 		return -EFAULT;
 
