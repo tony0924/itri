@@ -657,7 +657,11 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	 */
 	smp_rmb();
 
-	is_writable = gfn_is_writable(vcpu->kvm, gfn) ? true : write_fault;
+	if (vcpu->kvm->arch.cloning_role)
+		is_writable = gfn_is_writable(vcpu->kvm, gfn) ? true : write_fault;
+	else
+		is_writable = write_fault;
+
 	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, is_writable, &writable);
 	if (is_error_pfn(pfn))
 		return -EFAULT;
