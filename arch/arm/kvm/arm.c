@@ -877,42 +877,6 @@ int kvm_arm_setup_cloning_role(struct kvm *kvm, int role)
 	return ret;
 }
 
-int kvm_arm_get_pgd(struct kvm *kvm, void __user *buf)
-{
-	int i, idx;
-	bool *is_pgd_ram;
-	struct kvm_memory_slot *memslot;
-	struct kvm_memslots *slots;
-
-	if(copy_to_user(buf, kvm->arch.pgd, PTRS_PER_S2_PGD * sizeof(pgd_t)))
-		return -EFAULT;
-
-	is_pgd_ram = kmalloc(sizeof(bool) * PTRS_PER_S2_PGD, GFP_KERNEL | __GFP_ZERO);
-
-	slots = kvm_memslots(kvm);
-	kvm_for_each_memslot(memslot, slots) {
-		phys_addr_t addr = memslot->base_gfn << PAGE_SHIFT;
-		phys_addr_t end = addr + (memslot->npages << PAGE_SHIFT);
-		while(addr < end) {
-			idx = pgd_index(addr);
-			is_pgd_ram[idx] = true;
-			addr = pgd_addr_end(addr, end);
-		}
-	}
-
-	for(i=0; i<PTRS_PER_S2_PGD; i++) {
-		if (!is_pgd_ram[i]) {
-			if (put_user(__pgd(0), (pgd_t*)buf+i)) {
-				kfree(is_pgd_ram);
-				return -EFAULT;
-			}
-		}
-	}
-
-	kfree(is_pgd_ram);
-	return 0;
-}
-
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
@@ -937,9 +901,15 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		return PTRS_PER_S2_PGD * sizeof(pgd_t);
 	}
 	case KVM_ARM_GET_S2_PGD: {
+		/* We postpone RAM/IO address checking until stage2_set_pte,
+		 * because using pgd index to distinguish is not enough,
+		 * I/O address and RAM address may belong to the same pgd entry.
+		 */
 		if (!kvm->arch.pgd)
 			return -EFAULT;
-		return kvm_arm_get_pgd(kvm, argp);
+		if (copy_to_user(argp, kvm->arch.pgd, PTRS_PER_S2_PGD * sizeof(pgd_t)))
+			return -EFAULT;
+		return 0;
 	}
 	case KVM_ARM_SET_S2_PGD: {
 		if (!kvm->arch.pgd)

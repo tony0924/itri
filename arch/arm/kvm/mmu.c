@@ -67,7 +67,7 @@ void handle_coa_pud(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 void handle_coa_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		phys_addr_t addr, pmd_t* pmd);
 void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
-		const pte_t *old_pte, const pte_t *new_pte);
+		const pte_t *old_pte, const pte_t *new_pte, bool iomap);
 void print_page_table(unsigned long va);
 unsigned long gpa_to_hva(struct kvm *kvm, phys_addr_t addr);
 
@@ -498,7 +498,10 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 
 	pte = pte_offset_kernel(pmd, addr);
 
-	if (iomap && pte_present(*pte))
+	/* The destination VM will do ioremap again, whose I/O pa was already
+	 * already mapped in stage2 page table, therefore we will ignore
+	 * this case */
+	if (iomap && pte_present(*pte) && !(kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_TARGET))
 		return -EFAULT;
 
 	/* Create 2nd stage page table mapping - Level 3 */
@@ -508,7 +511,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	if (pte_present(old_pte))
 		kvm_tlb_flush_vmid_ipa(kvm, addr);
 	else if (pte_val(old_pte) && kvm->arch.cloning_role)
-		handle_coa_pte(kvm, addr, pte, &old_pte, new_pte);
+		handle_coa_pte(kvm, addr, pte, &old_pte, new_pte, iomap);
 	else
 		get_page(virt_to_page(pte));
 
@@ -1287,6 +1290,25 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t gpa, pte_t *ptep,
 }
 
 /**
+ * handle_coa_pte_ioaddr - ioaddr is a special case in stage2_set_pte
+ * we need to also remove the pfn from shared_list if the pfn is marked as
+ * shared.
+ */
+static void handle_coa_pte_ioaddr(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
+		const pte_t *old_pte, const pte_t *new_pte)
+{
+	pfn_t old_pfn, new_pfn;
+
+	old_pfn = pte_pfn(*old_pte);
+	new_pfn = pte_pfn(*new_pte);
+
+	if (is_pfn_shared(old_pfn))
+		del_shared_pfn(old_pfn);
+
+	kvm_tlb_flush_vmid_ipa(kvm, addr);
+}
+
+/**
  * Handle type fault in pmd
  * @addr: GPA of page fault
  * @ptep: pointer of pte entry
@@ -1297,10 +1319,13 @@ static void handle_coa_pte_target(struct kvm *kvm, phys_addr_t gpa, pte_t *ptep,
  * new_pte.
  */
 void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
-		const pte_t *old_pte, const pte_t *new_pte)
+		const pte_t *old_pte, const pte_t *new_pte, bool iomap)
 {
 	spin_lock(&handle_coa_lock);
-	if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE)
+
+	if (unlikely(iomap))
+		handle_coa_pte_ioaddr(kvm, addr, ptep, old_pte, new_pte);
+	else if (kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_SOURCE)
 		handle_coa_pte_src(kvm, addr, ptep, old_pte, new_pte);
 	else
 		handle_coa_pte_target(kvm, addr, ptep, old_pte, new_pte);
@@ -1308,6 +1333,7 @@ void handle_coa_pte(struct kvm *kvm, phys_addr_t addr, pte_t *ptep,
 	kvm_tlb_flush_vmid_ipa(kvm, addr);
 	spin_unlock(&handle_coa_lock);
 }
+
 /**
  * kvm_set_memslot_non_present - set stage2 table of a given memslot page table non-present
  * This function will be invoked when qemu starts to clone a VM.
