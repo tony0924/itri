@@ -2007,6 +2007,21 @@ static int vgic_create(struct kvm_device *dev, u32 type)
 	return kvm_vgic_create(dev->kvm);
 }
 
+void kvm_arm_cloning_remap_vgic(struct kvm *kvm)
+{
+	int ret;
+	mutex_lock(&kvm->lock);
+
+	ret = kvm_phys_addr_ioremap(kvm, kvm->arch.vgic.vgic_cpu_base,
+				    vgic_vcpu_base, KVM_VGIC_V2_CPU_SIZE);
+	if (ret) {
+		kvm_err("Unable to remap VGIC CPU to VCPU\n");
+		BUG();
+	}
+
+	mutex_unlock(&kvm->lock);
+}
+
 struct kvm_device_ops kvm_arm_vgic_v2_ops = {
 	.name = "kvm-arm-vgic",
 	.create = vgic_create,

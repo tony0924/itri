@@ -160,6 +160,8 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
 #define irqchip_in_kernel(k)	(!!((k)->arch.vgic.vctrl_base))
 #define vgic_initialized(k)	((k)->arch.vgic.ready)
 
+void kvm_arm_cloning_remap_vgic(struct kvm *kvm);
+
 #else
 static inline int kvm_vgic_hyp_init(void)
 {

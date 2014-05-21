@@ -871,8 +871,11 @@ int kvm_arm_setup_cloning_role(struct kvm *kvm, int role)
 	default:
 		return -EINVAL;
 	}
-	if (ret == 0)
+	if (ret == 0) {
 		kvm->arch.cloning_role = role;
+		if (role == KVM_ARM_CLONING_ROLE_SOURCE)
+			kvm_arm_cloning_remap_vgic(kvm);
+	}
 
 	return ret;
 }
