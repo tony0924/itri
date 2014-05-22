@@ -498,10 +498,10 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 
 	pte = pte_offset_kernel(pmd, addr);
 
-	/* The destination VM will do ioremap again, whose I/O pa was already
-	 * already mapped in stage2 page table, therefore we will ignore
-	 * this case */
-	if (iomap && pte_present(*pte) && !(kvm->arch.cloning_role == KVM_ARM_CLONING_ROLE_TARGET))
+	/* The cloning VM will do ioremap again (both SRC and DST), whose
+	 * I/O pa might be already already mapped in stage2 page table,
+	 * therefore we will ignore this case */
+	if (iomap && pte_present(*pte) && !(kvm->arch.cloning_role))
 		return -EFAULT;
 
 	/* Create 2nd stage page table mapping - Level 3 */
