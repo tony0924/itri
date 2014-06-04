@@ -515,6 +515,8 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	else
 		get_page(virt_to_page(pte));
 
+	/* XXX: can we just flush part of cache not all cache? */
+	flush_cache_all();
 	return 0;
 }
 
