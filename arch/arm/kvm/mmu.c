@@ -1386,12 +1386,45 @@ void mark_s2_non_present(struct kvm *kvm)
 	}
 }
 
+/**
+ * is_gpa_accessed - walk through stage2 PT check if this given gpa is already
+ * accessed by VM. Unsharing a not-yet-accessed GPA is a strange case.
+ */
+static bool is_gpa_accessed(struct kvm *kvm, phys_addr_t gpa)
+{
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	pgd = kvm->arch.pgd + pgd_index(gpa);
+	pud = pud_offset(pgd, gpa);
+	if (pud_none(*pud))
+		return false;
+
+	pmd = pmd_offset(pud, gpa);
+	if (pmd_none(*pmd))
+		return false;
+
+	pte = pte_offset_kernel(pmd, gpa);
+	if (pte_none(*pte))
+		return false;
+
+	return true;
+}
+
 static int kvm_arm_unshare_gfn(struct kvm *kvm, gfn_t gfn, phys_addr_t addr)
 {
 	pte_t new_pte;
 	pfn_t pfn;
 	int ret;
 	struct kvm_mmu_memory_cache *memcache = &kvm->vcpus[0]->arch.mmu_page_cache;
+
+	/* we won't unshare a gfn which is not yet accessed by VM, that's a
+	 * weird case. Some special cases: pmemsave!? */
+	if (!is_gpa_accessed(kvm, gfn<<PAGE_SHIFT)) {
+		return 0;
+	}
 
 	ret = mmu_topup_memory_cache(memcache, 2, KVM_NR_MEM_OBJS);
 	if (ret)
