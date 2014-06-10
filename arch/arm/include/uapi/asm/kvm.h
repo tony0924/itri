@@ -104,6 +104,8 @@ struct kvm_sync_regs {
 };
 
 struct kvm_arch_memory_slot {
+	/* which gfn is already unshared */
+	unsigned long *unshare_bitmap;
 };
 
 /* If you need to interpret the index values, here is the key: */

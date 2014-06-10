@@ -854,6 +854,24 @@ int vm_cloning_start_target(struct kvm *kvm)
 	return 0;
 }
 
+static int kvm_arm_create_unshare_bitmap(struct kvm *kvm)
+{
+	unsigned long size;
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots;
+
+	slots = kvm_memslots(kvm);
+
+	kvm_for_each_memslot(memslot, slots) {
+		size = kvm_dirty_bitmap_bytes(memslot);
+		memslot->arch.unshare_bitmap = kvm_kvzalloc(size);
+		if (!memslot->arch.unshare_bitmap)
+			return -ENOMEM;
+	}
+	/* XXX: free memory if we failed in any */
+	return 0;
+}
+
 int kvm_arm_setup_cloning_role(struct kvm *kvm, int role)
 {
 	int ret = 0;
@@ -875,6 +893,8 @@ int kvm_arm_setup_cloning_role(struct kvm *kvm, int role)
 		kvm->arch.cloning_role = role;
 		if (role == KVM_ARM_CLONING_ROLE_SOURCE)
 			kvm_arm_cloning_remap_vgic(kvm);
+
+		BUG_ON(kvm_arm_create_unshare_bitmap(kvm));
 	}
 
 	return ret;
