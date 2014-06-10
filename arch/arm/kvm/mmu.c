@@ -450,6 +450,38 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	kvm->arch.pgd = NULL;
 }
 
+static void mark_gfn_unshared(struct kvm *kvm, gfn_t gfn)
+{
+	struct kvm_memory_slot *memslot;
+	unsigned long rel_gfn;
+
+	memslot = gfn_to_memslot(kvm, gfn);
+
+	if (unlikely(memslot == NULL))
+		pr_err("%s cloning role(%d), gfn = 0x%llx\n",
+				__func__, kvm->arch.cloning_role, gfn);
+
+	BUG_ON(memslot == NULL || memslot->arch.unshare_bitmap == NULL);
+
+	rel_gfn = gfn - memslot->base_gfn;
+	set_bit_le(rel_gfn, memslot->arch.unshare_bitmap);
+}
+
+static bool is_gfn_unshared(struct kvm *kvm, gfn_t gfn)
+{
+	struct kvm_memory_slot *memslot;
+	unsigned long rel_gfn;
+
+	memslot = gfn_to_memslot(kvm, gfn);
+
+	if (unlikely(memslot == NULL))
+		pr_err("%s cloning role(%d), gfn = 0x%llx\n",
+				__func__, kvm->arch.cloning_role, gfn);
+
+	BUG_ON(memslot == NULL || memslot->arch.unshare_bitmap == NULL);
+	rel_gfn = gfn - memslot->base_gfn;
+	return test_bit_le(rel_gfn, memslot->arch.unshare_bitmap);
+}
 
 static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 			  phys_addr_t addr, const pte_t *new_pte, bool iomap)
@@ -514,6 +546,9 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		handle_coa_pte(kvm, addr, pte, &old_pte, new_pte, iomap);
 	else
 		get_page(virt_to_page(pte));
+
+	if (kvm->arch.cloning_role && !iomap)
+		mark_gfn_unshared(kvm, addr >> PAGE_SHIFT);
 
 	/* XXX: can we just flush part of cache not all cache? */
 	flush_cache_all();
@@ -1425,6 +1460,10 @@ static int kvm_arm_unshare_gfn(struct kvm *kvm, gfn_t gfn, phys_addr_t addr)
 	if (!is_gpa_accessed(kvm, gfn<<PAGE_SHIFT)) {
 		return 0;
 	}
+
+	/* we won't unshare it again */
+	if (is_gfn_unshared(kvm, gfn))
+		return 0;
 
 	ret = mmu_topup_memory_cache(memcache, 2, KVM_NR_MEM_OBJS);
 	if (ret)
